@@ -15,7 +15,7 @@ class PIGDM(DDPM):
         self.H = H
         self.sigma_y = sigma_y
         self.noisy = True if sigma_y !=0 else False
-        self.eta = eta
+        self.eta = eta  # Keep this for internal default
         self.sigma_t = np.linspace(0.001, 1) ### temp
         self.n = n
         self.device = "cuda"
@@ -46,14 +46,12 @@ class PIGDM(DDPM):
     def _get_grad_term(self, x_t, xhat, y):
         if not self.noisy:
             mat_term = (self.H.H_pinv(y) - self.H.H_pinv(self.H.H(xhat))).reshape(self.n, -1)
-
             mat_x = (mat_term.detach() * xhat.reshape(self.n, -1)).sum()
-
             grad_term = torch.autograd.grad(mat_x, x_t, retain_graph=True)[0].detach()
         else:
             mat_term = (y_0 - self.H(xhat)).T @ (self.H.val @ self.H.val.T + self.sigma_y/self.r_t)######
             raise ValueError("Not implemented yet")
-        
+
         return grad_term
 
     def _init_sampling(self):
@@ -66,8 +64,7 @@ class PIGDM(DDPM):
         x.requires_grad = True
 
         t_s = self.reversed_time_steps
-        v_s = [-1] + t_s[::-1][:-1] # in the pseudo code it's v_i's the time step and they note t and s
-        # here i note t_s the list for the t's and v_s the list for the s's
+        v_s = [-1] + list(t_s[::-1][:-1])
         v_s = v_s[::-1]
 
         return (x, xt_s, x0_s, x, t_s, v_s)
@@ -85,39 +82,48 @@ class PIGDM(DDPM):
         coef_g = alpha_t.sqrt() * alpha_s.sqrt()
         return (alpha_t, alpha_s, c1, c2, coef_g)
 
-    def posterior_sampling(self, linear_operator, y, x_true=None, show_steps=True, vis_y=None, steps_viz=200):
-
-        if vis_y == None:
+    def posterior_sampling(self, y, x_true=None, show_steps=True, vis_y=None, steps_viz=200, eta=None, awd=True):
+        if vis_y is None:
             vis_y = y
 
-        y = y.repeat(1, 1, 1, 1)
+        if eta is None:
+            eta = self.eta
+
+        y_0 = y.repeat(1,1,1,1)
 
         (x, xt_s, x0_s, x, t_s, v_s) = self._init_sampling()
 
         x_t = x
+        if show_steps:
+            time_iterator = tqdm(zip(t_s, v_s), total=len(t_s), desc="Sampling")
+        else:
+            time_iterator = zip(t_s, v_s)
 
-        for i, (t_, s_) in enumerate(tqdm(zip(t_s, v_s), total=len(t_s))):
-
+        for i, (t_, s_) in enumerate(time_iterator):
             alpha_t, alpha_s, c1, c2, coef_g = self._get_coefs(x, t_, s_)
             x_t = x_t.clone().to(self.device).requires_grad_(True)
-
             eps = self.get_eps_from_model(x_t, t_)
-
             xhat = self.predict_xstart_from_eps(x_t, eps, t_)
-
             grad_term = self._get_grad_term(x_t, xhat, y)
-
             xhat = xhat.detach()
             eps = eps.detach()
+            z = torch.randn(self.imgshape, device=self.device)
+            if awd:
+              x_s = alpha_s.sqrt() * xhat + c1 * z + c2 * eps + coef_g * grad_term
+            else:
+              x_s = alpha_s.sqrt() * xhat + c1 * z + c2 * eps +  alpha_t.sqrt() * grad_term
 
-            z = torch.randn(self.imgshape, device=self.device) # eps in the pseudo code but eps was already used :(
-            x_s = alpha_s.sqrt() * xhat + c1 * z + c2 * eps + coef_g * grad_term
-
-            xt_s.append(x_s.detach().cpu())
+            xt_s.append(x_s.detach())
             x0_s.append(xhat.detach().cpu())
             x_t = x_s.detach()
             x_t.requires_grad_(False)
 
             if show_steps and i % steps_viz == 0:
-                _ = display_as_pilimg(torch.cat((x_t, xhat, self.H.show(y), x_true), dim=3))
+                if hasattr(self.H, 'show'):
+                    _ = display_as_pilimg(torch.cat((x_t, xhat, self.H.show(vis_y), x_true), dim=3))
+                elif x_true is not None:
+                    _ = display_as_pilimg(torch.cat((x_t, xhat, x_true), dim=3))
+                else:
+                    _ = display_as_pilimg(torch.cat((x_t, xhat), dim=3))
+
         return (list(reversed(xt_s)), list(reversed(x0_s)))

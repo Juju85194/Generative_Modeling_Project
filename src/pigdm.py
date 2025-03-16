@@ -90,6 +90,8 @@ class PIGDM(DDPM):
         if vis_y == None:
             vis_y = y
 
+        y = y.repeat(1, 1, 1, 1)
+
         (x, xt_s, x0_s, x, t_s, v_s) = self._init_sampling()
 
         x_t = x

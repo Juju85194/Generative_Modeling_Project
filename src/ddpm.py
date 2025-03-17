@@ -11,6 +11,7 @@ from tqdm import tqdm
 class DDPM:
   def __init__(self, model=None, beta_start=0.0001, beta_end=0.02, device="cuda"):
     self.num_diffusion_timesteps = 1000
+    self.device = device
     self.reversed_time_steps = np.arange(self.num_diffusion_timesteps)[::-1]
     self.betas = np.linspace(beta_start, beta_end, self.num_diffusion_timesteps,
                               dtype=np.float64)

@@ -12,9 +12,9 @@ class H_fcn:
 
     def __call__(self, x):
         return self.H(x)
-    
+
     def show(self, x):
-        return x
+        return self.H(x)
 
 
 class Inpainting(H_fcn):
@@ -34,3 +34,12 @@ class Superres(H_fcn):
 
     def show(self, x, img_size=(256, 256)):
         return F.interpolate(self(x), size=img_size, mode='bicubic', align_corners=False)
+
+
+class Linear(H_fcn):
+    def __init__(self, mat=torch.ones(1, 3, 256, 256)):
+        self.H = lambda x: matmul(x, mat)
+        self.H_pinv = lambda x: mat_pinv(x, mat)
+        self.superres = False
+        self.mat = mat
+        super().__init__(self.H, self.H_pinv, mat, True)

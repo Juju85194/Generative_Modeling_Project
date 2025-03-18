@@ -20,3 +20,14 @@ def superres_h(x, scale_factor=4):
 def superres_h_pinv(x_lowres, scale_factor=4, mode='bicubic'):
     """Upsamples the image using bicubic interpolation."""
     return F.interpolate(x_lowres, scale_factor=scale_factor, mode=mode, align_corners=False)
+
+
+def matmul(x, mat):
+    """Applies matrice multiplication."""
+    return mat @ x
+
+
+def mat_pinv(x, mat):
+    """return p_inv @ x of the matrix """
+    p_inv = torch.linalg.pinv(mat)
+    return p_inv @ x

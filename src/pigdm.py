@@ -10,8 +10,8 @@ from .ddpm import DDPM
 
 
 class PIGDM(DDPM):
-    def __init__(self, model=None, n=256, H=None, sigma_y=0, eta=0.5, device="cuda"):
-        super().__init__(model, device=device)
+    def __init__(self, model=None, n=256, H=None, sigma_y=0, eta=0.5, num_diffusion_timesteps=1000, device="cuda"):
+        super().__init__(model, num_diffusion_timesteps=num_diffusion_timesteps, device=device)
         self.H = H
         self.sigma_y = sigma_y
         self.noisy = True if sigma_y !=0 else False
@@ -19,6 +19,7 @@ class PIGDM(DDPM):
         self.sigma_t = np.linspace(0.001, 1) ### temp
         self.n = n
         self.device = "cuda"
+        self.sigma_y = sigma_y
 
     def _get_rt(self):
         if self.noisy:
@@ -43,14 +44,15 @@ class PIGDM(DDPM):
         alpha_t = self.alphas[t_s].view(-1, 1, 1, 1)
         return alpha_t.sqrt() * x_0 + (1 - alpha_t).sqrt() * torch.randn_like(x_0)
 
-    def _get_grad_term(self, x_t, xhat, y):
+    def _get_grad_term(self, x_t, xhat, y, t=0):
         if not self.noisy:
             mat_term = (self.H.H_pinv(y) - self.H.H_pinv(self.H.H(xhat))).reshape(self.n, -1)
             mat_x = (mat_term.detach() * xhat.reshape(self.n, -1)).sum()
             grad_term = torch.autograd.grad(mat_x, x_t, retain_graph=True)[0].detach()
         else:
-            mat_term = (y_0 - self.H(xhat)).T @ (self.H.val @ self.H.val.T + self.sigma_y/self.r_t)######
-            raise ValueError("Not implemented yet")
+            mat_term = (y - self.H(xhat)).T @ torch.inverse((self.H.mat @ self.H.mat.T + self.sigma_y / self.r[t] * torch.eye(self.n))) @ self.H.mat######
+            mat_x = (mat_term.detach() * xhat.reshape(self.n, -1)).sum()
+            grad_term = torch.autograd.grad(mat_x, x_t, retain_graph=True)[0].detach()            
 
         return grad_term
 
@@ -59,6 +61,7 @@ class PIGDM(DDPM):
         x0_s = []
 
         self.alphas_cp_torch = torch.tensor(self.alphas_cumprod, device=self.device, dtype=torch.float32)
+        self.r = self.alphas_cp_torch * self.sigma_y / (self.alphas_cp_torch + alpha * self.sigma_y)
 
         x = torch.randn(self.imgshape, device=self.device)
         x.requires_grad = True

@@ -9,8 +9,8 @@ from tqdm import tqdm
 
 
 class DDPM:
-  def __init__(self, model=None, beta_start=0.0001, beta_end=0.02, device="cuda"):
-    self.num_diffusion_timesteps = 1000
+  def __init__(self, model=None, beta_start=0.0001, beta_end=0.02, num_diffusion_timesteps=1000, device="cuda"):
+    self.num_diffusion_timesteps = num_diffusion_timesteps
     self.device = device
     self.reversed_time_steps = np.arange(self.num_diffusion_timesteps)[::-1]
     self.betas = np.linspace(beta_start, beta_end, self.num_diffusion_timesteps,
@@ -62,6 +62,10 @@ class DDPM:
     if vis_y==None:
       vis_y = y
 
+
+    xt_s = []
+    x0_s = []
+
     x = torch.randn(self.imgshape,device=self.device)
     x.requires_grad = True
 
@@ -79,7 +83,11 @@ class DDPM:
       zeta = 1 / torch.sqrt(gradterm)
 
       x = x_prime - zeta*grad
-
+      xt_s.append(x.detach())
+      x0_s.append(xhat.detach().cpu())
       if show_steps and t%100==0:
         print('Iteration :', t)
-        pilimg = display_as_pilimg(torch.cat((x, xhat, y, x_true), dim=3))
+        _ = display_as_pilimg(torch.cat((x, xhat, y, x_true), dim=3))
+    
+    return (list(reversed(xt_s)), list(reversed(x0_s)))
+  

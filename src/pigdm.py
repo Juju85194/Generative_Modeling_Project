@@ -61,7 +61,7 @@ class PIGDM(DDPM):
         x0_s = []
 
         self.alphas_cp_torch = torch.tensor(self.alphas_cumprod, device=self.device, dtype=torch.float32)
-        self.r = self.alphas_cp_torch * self.sigma_y / (self.alphas_cp_torch + alpha * self.sigma_y)
+        #self.r = self.alphas_cp_torch * self.sigma_y / (self.alphas_cp_torch + alpha * self.sigma_y)
 
         x = torch.randn(self.imgshape, device=self.device)
         x.requires_grad = True
@@ -72,27 +72,39 @@ class PIGDM(DDPM):
 
         return (x, xt_s, x0_s, x, t_s, v_s)
 
-    def _get_coefs(self, x, ti, si):
-        t = torch.ones(self.n).to(x.device).long() * ti
-        s = torch.ones(self.n).to(x.device).long() * si
-
+    def _get_coefs(self, x, ti, si, awd):
         alpha_t = self.alphas_cp_torch[ti].view(-1, 1, 1, 1)
-        alpha_s = torch.tensor(self.alphas_cp_torch[si].cpu() if si != -1 else 1.0, device=self.device, dtype=torch.float32).view(-1, 1, 1, 1)
+        alpha_s = torch.tensor(self.alphas_cp_torch[si].cpu() if si != -1 else 1.0,
+                               device=self.device,
+                               dtype=torch.float32).view(-1, 1, 1, 1)
 
         c1 = ((1 - alpha_t / alpha_s) * (1 - alpha_s) / (1 - alpha_t)).sqrt() * self.eta
         c2 = ((1 - alpha_s) - c1**2).sqrt()
 
-        coef_g = alpha_t.sqrt() * alpha_s.sqrt()
+        if awd:
+            coef_g = alpha_t.sqrt() * alpha_s.sqrt()
+        else:
+            coef_g = (alpha_s.sqrt() - c2 * alpha_t.sqrt() / (1 - alpha_t).sqrt()) * alpha_t.sqrt()
         return (alpha_t, alpha_s, c1, c2, coef_g)
 
-    def posterior_sampling(self, y, x_true=None, show_steps=True, vis_y=None, steps_viz=200, eta=None, awd=True):
+    def posterior_sampling(self, y, x_true=None, show_steps=True, vis_y=None,
+                           steps_viz=200, eta=None, beta=1, awd=True):
+        """
+        y: the input image
+        x_true: the true image (optionnal)
+        show_steps: verbose
+        vis_y: not useful #todo delete it
+        eta: parameter of the ddim sampler
+        beta: grad term weight
+        awd: adaptative weight diffusion True or false
+        """
         if vis_y is None:
             vis_y = y
 
         if eta is None:
             eta = self.eta
 
-        y_0 = y.repeat(1,1,1,1)
+        y = y.repeat(1,1,1,1)
 
         (x, xt_s, x0_s, x, t_s, v_s) = self._init_sampling()
 
@@ -103,7 +115,7 @@ class PIGDM(DDPM):
             time_iterator = zip(t_s, v_s)
 
         for i, (t_, s_) in enumerate(time_iterator):
-            alpha_t, alpha_s, c1, c2, coef_g = self._get_coefs(x, t_, s_)
+            alpha_t, alpha_s, c1, c2, coef_g = self._get_coefs(x, t_, s_, awd)
             x_t = x_t.clone().to(self.device).requires_grad_(True)
             eps = self.get_eps_from_model(x_t, t_)
             xhat = self.predict_xstart_from_eps(x_t, eps, t_)
@@ -111,10 +123,11 @@ class PIGDM(DDPM):
             xhat = xhat.detach()
             eps = eps.detach()
             z = torch.randn(self.imgshape, device=self.device)
-            if awd:
-              x_s = alpha_s.sqrt() * xhat + c1 * z + c2 * eps + coef_g * grad_term
-            else:
-              x_s = alpha_s.sqrt() * xhat + c1 * z + c2 * eps +  alpha_t.sqrt() * grad_term
+
+            if not awd:
+                eps = (x_t - xhat * alpha_t.sqrt()) / (1 - alpha_t).sqrt()
+
+            x_s = alpha_s.sqrt() * xhat + c1 * z + c2 * eps + coef_g * grad_term * beta
 
             xt_s.append(x_s.detach())
             x0_s.append(xhat.detach().cpu())
@@ -122,11 +135,15 @@ class PIGDM(DDPM):
             x_t.requires_grad_(False)
 
             if show_steps and i % steps_viz == 0:
-                if hasattr(self.H, 'show'):
-                    _ = display_as_pilimg(torch.cat((x_t, xhat, self.H.show(vis_y), x_true), dim=3))
-                elif x_true is not None:
-                    _ = display_as_pilimg(torch.cat((x_t, xhat, x_true), dim=3))
-                else:
-                    _ = display_as_pilimg(torch.cat((x_t, xhat), dim=3))
+                self._show_step(xhat, y, x_true, x_t)
+
+        if show_steps:
+            self._show_step(xhat, y, x_true, x_t)
 
         return (list(reversed(xt_s)), list(reversed(x0_s)))
+
+    def _show_step(self, xhat, y, x_true, x_t=None):
+        tensors = [x_t, xhat, self.H.show(y), x_true]
+        tensors = [tens.cpu() for tens in tensors if tens is not None]
+
+        _ = display_as_pilimg(torch.cat(tensors, dim=3))

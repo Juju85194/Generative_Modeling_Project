@@ -35,7 +35,7 @@ class DDPM:
         np.sqrt(1.0 / self.alphas_cumprod[t])* x
         - np.sqrt(1.0 / self.alphas_cumprod[t] - 1) * eps
     )
-    x_start = x_start.clamp(-1.,1.)
+    x_start = x_start.clamp(-1.,1.) 
     return(x_start)
 
   def sample(self, show_steps=True):

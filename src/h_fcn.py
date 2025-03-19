@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 from .h_utils import *
+from .utils import gaussian_kernel
 
 
 class H_fcn:
@@ -43,3 +44,18 @@ class Linear(H_fcn):
         self.superres = False
         self.mat = mat
         super().__init__(self.H, self.H_pinv, mat, True)
+
+
+class Blurring(H_fcn):
+    def __init__(self, kernel="Gaussian", size=11, sigma=5, device="cuda"):
+        ### for size use an odd number
+        if kernel == "Gaussian":
+            self.kernel = gaussian_kernel(size, sigma, device)
+        else:
+            self.kernel = kernel
+
+        self.H = lambda x: blur(x, self.kernel, img_dim=256, device=device)
+        self.H_pinv = lambda x: blur_inv(x, self.kernel, img_dim=256, device=device)
+        self.superres = False
+        self.mat = None
+        super().__init__(self.H, self.H_pinv, False, False)

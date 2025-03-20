@@ -15,6 +15,9 @@ class H_fcn:
         return self.H(x)
 
     def show(self, x):
+        """This function is just here to show the image, basically it does the same thing as __call__
+        but infer on the right dimension (3,256,256) when the function H lower the dimension of the img
+        """
         return self.H(x)
 
 

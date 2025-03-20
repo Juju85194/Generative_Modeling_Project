@@ -57,9 +57,12 @@ class DDIM:
 
         return x
 
-    def posterior_sampling(self, linear_operator, y, x_true=None, show_steps=True, vis_y=None, steps_viz=200):
+    def posterior_sampling(self, linear_operator, y, x_true=None, show_steps=True, eta=None, vis_y=None, steps_viz=200):
         if vis_y is None:
             vis_y = y
+        
+        if eta is not None:
+            self.eta = eta
 
         xt_s = []
         x0_s = []

@@ -40,9 +40,15 @@ Generative_modeling_project/
 
 First, please run:
 ```bash
-pip install -e .
+chmod +x init_repo.sh
 ```
 
-from a terminal or a notebook. Or simply run the notebook ``init.ipynb`` to download the packages, the pre-trained models and the data
+Then 
 
-#TODO: faire les scripts pour run les experiences, insérer un dossier report dans lequel on mettra les pdf/slides etc... Commenter certaines parties dans src 
+```
+./init_repo.sh
+```
+
+from a terminal. Or simply run the whole notebook ``init.ipynb`` to download the packages, the pre-trained models and the data
+
+

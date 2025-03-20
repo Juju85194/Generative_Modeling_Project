@@ -34,6 +34,18 @@ def calculate_lpips(img_pred, img_true, device):
     img_true = (0.5 + 0.5 * img_true).clamp(0.0, 1.0)
     return lpips(img_pred, img_true)
 
+def calculate_fid(img_pred, img_true, device):
+    """Calculates FID between predicted and true images."""
+    fid = torchmetrics.image.FrechetInceptionDistance(feature=2048, normalize=True).to(device) # Use normalize=True
+
+    # Ensure images are in the [0, 255] range and uint8 type
+    img_pred = (img_pred.clamp(0.0, 1.0) * 255).type(torch.uint8)
+    img_true = (img_true.clamp(0.0, 1.0) * 255).type(torch.uint8)
+    
+    fid.update(img_true, real=True)
+    fid.update(img_pred, real=False)
+    return fid.compute()
+
 def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
                    num_samples=1, eta=1.0, awd=True, show_steps=False,
                    num_diffusion_timesteps=500, num_ddim_steps=500, steps_viz=200,
@@ -41,16 +53,23 @@ def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
     all_psnr = []
     all_ssim = []
     all_lpips = []
+    all_fid = []
 
     if run_dps:
         all_psnr_d = []
         all_ssim_d = []
         all_lpips_d = []
+        all_fid_d = []
         all_logs_d = {}
 
     all_logs = {}
 
     image_files = [f for f in os.listdir(dataset_path) if f.endswith(('.png', '.jpg', '.jpeg'))]
+
+    # Initialize FID metric
+    fid = torchmetrics.image.FrechetInceptionDistance(feature=2048, normalize=True).to(device)
+    if run_dps:
+        fid_d = torchmetrics.image.FrechetInceptionDistance(feature=2048, normalize=True).to(device)
 
     for idx in tqdm(range(num_images), desc="Evaluating Images"):
         selected_img = random.choice(image_files)
@@ -113,9 +132,14 @@ def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
 
             x_pred = xt_s[0]
 
+            fid.update((x_true.clamp(0.0, 1.0) * 255).type(torch.uint8).to(device), real=True)
+            fid.update((x_pred.clamp(0.0, 1.0) * 255).type(torch.uint8).to(device), real=False)
+
+
             psnr_val = calculate_psnr(x_pred, x_true, device).item()
             ssim_val = calculate_ssim(x_pred, x_true, device).item()
             lpips_val = calculate_lpips(x_pred, x_true, device).item()
+
 
             all_psnr.append(psnr_val)
             all_ssim.append(ssim_val)
@@ -130,6 +154,9 @@ def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
                                                             steps_viz=steps_viz)
                 x_pred_d = xt_s_d[0]
 
+                fid_d.update((x_true.clamp(0.0, 1.0) * 255).type(torch.uint8).to(device), real=True)
+                fid_d.update((x_pred_d.clamp(0.0, 1.0) * 255).type(torch.uint8).to(device), real=False)
+
                 psnr_val_d = calculate_psnr(x_pred_d, x_true, device).item()
                 ssim_val_d = calculate_ssim(x_pred_d, x_true, device).item()
                 lpips_val_d = calculate_lpips(x_pred_d, x_true, device).item()
@@ -140,16 +167,20 @@ def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
 
                 all_logs_d[idx].append(x_pred_d.cpu())
 
+    avg_fid = fid.compute().item()
     avg_psnr = np.mean(all_psnr)
     avg_ssim = np.mean(all_ssim)
     avg_lpips = np.mean(all_lpips)
 
-    scores = {"PSNR": avg_psnr, "SSIM": avg_ssim, "LPIPS": avg_lpips}
+    scores = {"PSNR": avg_psnr, "SSIM": avg_ssim, "LPIPS": avg_lpips, "FID": avg_fid}
 
     if run_dps:
+        avg_fid_d = fid_d.compute().item()
         scores["PSNR_d"] = np.mean(all_psnr_d)
         scores["SSIM_d"] = np.mean(all_ssim_d)
         scores["LPIPS_d"] = np.mean(all_lpips_d)
+        scores["FID_d"] = avg_fid_d
+
 
     if run_dps:
         return (scores, (all_logs, all_logs_d))

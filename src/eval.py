@@ -8,6 +8,8 @@ from PIL import Image
 from src.utils import *
 from src.h_fcn import *
 from src.pigdm import PIGDM
+from src.ddpm import DDPM
+from src.ddim import DDIM
 
 IMGSHAPE = (1, 3, 256, 256)
 
@@ -35,10 +37,16 @@ def calculate_lpips(img_pred, img_true, device):
 def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
                    num_samples=1, eta=1.0, awd=True, show_steps=False,
                    num_diffusion_timesteps=500, steps_viz=200,
-                   device="cuda", keep_logs=False, **kwargs):
+                   device="cuda", keep_logs=False, run_dps=False, **kwargs):
     all_psnr = []
     all_ssim = []
     all_lpips = []
+
+    if run_dps:
+        all_psnr_d = []
+        all_ssim_d = []
+        all_lpips_d = []
+        all_logs_d = {}
 
     all_logs = {}
 
@@ -50,6 +58,9 @@ def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
         x_true = pilimg_to_tensor(img_pil)
 
         all_logs[idx] = [x_true.cpu()]
+
+        if run_dps:
+            all_logs_d[idx] = [x_true.cpu()]
 
         if h_fcn_class == Inpainting:
             mask = kwargs.get('mask', None)
@@ -77,7 +88,7 @@ def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
 
             kernel = gaussian_kernel(size=kernel_size, sigma=sigma, device=device)
 
-            H = h_fcn_class(kernel = kernel)
+            H = h_fcn_class(kernel=kernel)
 
         else:
             raise ValueError("Unsupported h_fcn_class")
@@ -85,12 +96,19 @@ def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
         y = H(x_true)
         all_logs[idx].append(H.show(x_true).cpu())
 
+        if run_dps:
+            all_logs_d[idx].append(H.show(x_true).cpu())
+
         y_0 = y#.repeat(num_samples, 1, 1, 1)
         pigdm_instance = PIGDM(model, 256, H, num_diffusion_timesteps=num_diffusion_timesteps)
+
+        if run_dps:
+            dps_instance = DDIM(model, num_diffusion_timesteps=num_diffusion_timesteps)
 
         for _ in range(num_samples):
             xt_s, _ = pigdm_instance.posterior_sampling(y=y_0, x_true=x_true, eta=eta, awd=awd, show_steps=show_steps, steps_viz=steps_viz,
                                                         tqdm_bar=False)
+
             x_pred = xt_s[0]
 
             psnr_val = calculate_psnr(x_pred, x_true, device).item()
@@ -103,8 +121,35 @@ def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
 
             all_logs[idx].append(x_pred.cpu())
 
+            if run_dps:
+
+                xt_s_d, _ = dps_instance.posterior_sampling(H.show, y=H.show(x_true), x_true=x_true,
+                                                            show_steps=show_steps, eta=eta,
+                                                            steps_viz=steps_viz)
+                x_pred_d = xt_s_d[0]
+
+                psnr_val_d = calculate_psnr(x_pred_d, x_true, device).item()
+                ssim_val_d = calculate_ssim(x_pred_d, x_true, device).item()
+                lpips_val_d = calculate_lpips(x_pred_d, x_true, device).item()
+
+                all_psnr_d.append(psnr_val_d)
+                all_ssim_d.append(ssim_val_d)
+                all_lpips_d.append(lpips_val_d)
+
+                all_logs_d[idx].append(x_pred_d.cpu())
+
     avg_psnr = np.mean(all_psnr)
     avg_ssim = np.mean(all_ssim)
     avg_lpips = np.mean(all_lpips)
 
-    return ({"PSNR": avg_psnr, "SSIM": avg_ssim, "LPIPS": avg_lpips}, all_logs)
+    scores = {"PSNR": avg_psnr, "SSIM": avg_ssim, "LPIPS": avg_lpips}
+
+    if run_dps:
+        scores["PSNR_d"] = np.mean(all_psnr_d)
+        scores["SSIM_d"] = np.mean(all_ssim_d)
+        scores["LPIPS_d"] = np.mean(all_lpips_d)
+
+    if run_dps:
+        return (scores, (all_logs, all_logs_d))
+
+    return (scores, all_logs)

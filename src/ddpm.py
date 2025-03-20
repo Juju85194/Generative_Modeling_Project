@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 
 class DDPM:
-  def __init__(self, model=None, beta_start=0.0001, beta_end=0.02, num_diffusion_timesteps=1000, device="cuda"):
+  def __init__(self, model=None, beta_start=0.0001, beta_end=0.02, num_diffusion_timesteps=500, device="cuda"):
     self.num_diffusion_timesteps = num_diffusion_timesteps
     self.device = device
     self.reversed_time_steps = np.arange(self.num_diffusion_timesteps)[::-1]
@@ -58,7 +58,8 @@ class DDPM:
 
     return(x)
 
-  def posterior_sampling(self, linear_operator, y, x_true=None, show_steps=True, vis_y=None):
+  def posterior_sampling(self, linear_operator, y, x_true=None, show_steps=True, vis_y=None,
+                         steps_viz=200):
     if vis_y==None:
       vis_y = y
 
@@ -84,9 +85,11 @@ class DDPM:
       x = x_prime - zeta*grad
       xt_s.append(x.detach())
       x0_s.append(xhat.detach().cpu())
-      if show_steps and t%100==0:
+      if show_steps and t%steps_viz==0:
         print('Iteration :', t)
         _ = display_as_pilimg(torch.cat((x, xhat, y, x_true), dim=3))
     
+    if show_steps:
+      _ = display_as_pilimg(torch.cat((x, xhat, y, x_true), dim=3))
     return (list(reversed(xt_s)), list(reversed(x0_s)))
   

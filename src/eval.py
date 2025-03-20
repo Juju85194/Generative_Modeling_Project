@@ -36,7 +36,7 @@ def calculate_lpips(img_pred, img_true, device):
 
 def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
                    num_samples=1, eta=1.0, awd=True, show_steps=False,
-                   num_diffusion_timesteps=500, steps_viz=200,
+                   num_diffusion_timesteps=500, num_ddim_steps=500, steps_viz=200,
                    device="cuda", keep_logs=False, run_dps=False, **kwargs):
     all_psnr = []
     all_ssim = []
@@ -100,10 +100,12 @@ def evaluate_model(model, h_fcn_class, dataset_path, num_images=10,
             all_logs_d[idx].append(H.show(x_true).cpu())
 
         y_0 = y#.repeat(num_samples, 1, 1, 1)
-        pigdm_instance = PIGDM(model, 256, H, num_diffusion_timesteps=num_diffusion_timesteps)
+        pigdm_instance = PIGDM(model, 256, H, num_diffusion_timesteps=num_diffusion_timesteps,
+                               num_ddim_steps=num_ddim_steps)
 
         if run_dps:
-            dps_instance = DDIM(model, num_diffusion_timesteps=num_diffusion_timesteps)
+            dps_instance = DDIM(model, num_diffusion_timesteps=num_diffusion_timesteps,
+                                num_ddim_steps=num_ddim_steps)
 
         for _ in range(num_samples):
             xt_s, _ = pigdm_instance.posterior_sampling(y=y_0, x_true=x_true, eta=eta, awd=awd, show_steps=show_steps, steps_viz=steps_viz,

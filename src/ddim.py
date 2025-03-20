@@ -7,10 +7,16 @@ from PIL import Image
 from tqdm import tqdm
 
 
+import torch
+import numpy as np
+
+from src.utils import display_as_pilimg
+
 class DDIM:
     def __init__(self, model=None, beta_start=0.0001, beta_end=0.02, num_diffusion_timesteps=1000, 
-                 eta=0.2, device="cuda"):
+                 num_ddim_steps=50, eta=0.0, device="cuda"):
         self.num_diffusion_timesteps = num_diffusion_timesteps
+        self.num_ddim_steps = num_ddim_steps
         self.device = device
         self.eta = eta
 
@@ -18,7 +24,7 @@ class DDIM:
         self.alphas = 1.0 - self.betas
         self.alphas_cumprod = np.cumprod(self.alphas, axis=0)
 
-        self.reversed_time_steps = np.arange(self.num_diffusion_timesteps)[::-1]
+        self.ddim_timesteps = np.linspace(0, num_diffusion_timesteps-1, num_ddim_steps, dtype=int)[::-1]
 
         self.model = model
         self.imgshape = (1, 3, 256, 256)
@@ -36,9 +42,9 @@ class DDIM:
     def sample(self, show_steps=True):
         with torch.no_grad():
             x = torch.randn(self.imgshape, device=self.device)  # Initialisation de x_T
-            for i in range(len(self.reversed_time_steps)-1):
-                t = self.reversed_time_steps[i]
-                t_next = self.reversed_time_steps[i + 1]
+            for i in range(len(self.ddim_timesteps) - 1):
+                t = self.ddim_timesteps[i]
+                t_next = self.ddim_timesteps[i + 1]
 
                 eps = self.get_eps_from_model(x, t)
                 x0_pred = self.predict_xstart_from_eps(x, eps, t)
@@ -57,10 +63,10 @@ class DDIM:
 
         return x
 
-    def posterior_sampling(self, linear_operator, y, x_true=None, show_steps=True, eta=None, vis_y=None, steps_viz=200):
+    def posterior_sampling(self, linear_operator, y, x_true=None, show_steps=True, eta=None, vis_y=None, steps_viz=20):
         if vis_y is None:
             vis_y = y
-        
+
         if eta is not None:
             self.eta = eta
 
@@ -70,12 +76,12 @@ class DDIM:
         x = torch.randn(self.imgshape, device=self.device)
         x.requires_grad = True
 
-        for i in range(len(self.reversed_time_steps) - 1):
-            t = self.reversed_time_steps[i]
-            t_next = self.reversed_time_steps[i + 1]
+        for i in range(len(self.ddim_timesteps) - 1):
+            t = self.ddim_timesteps[i]
+            t_next = self.ddim_timesteps[i + 1]
 
             eps = self.get_eps_from_model(x, t)
-            xhat = self.predict_xstart_from_eps(x, eps, t)  # x_0
+            xhat = self.predict_xstart_from_eps(x, eps, t)
 
             alpha_t = self.alphas_cumprod[t]
             alpha_t_next = self.alphas_cumprod[t_next]
@@ -87,7 +93,7 @@ class DDIM:
 
             gradterm = torch.sum((linear_operator(xhat) - y) ** 2)
             grad = torch.autograd.grad(gradterm, x)[0]
-            zeta = 1 / torch.sqrt(gradterm) 
+            zeta = 1 / torch.sqrt(gradterm + 1e-8)  # Évite la division par zéro
 
             x = x_prime - zeta * grad
 

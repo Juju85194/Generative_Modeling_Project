@@ -62,7 +62,6 @@ class DDPM:
     if vis_y==None:
       vis_y = y
 
-
     xt_s = []
     x0_s = []
 

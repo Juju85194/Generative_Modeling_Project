@@ -16,9 +16,9 @@ class PIGDM(DDPM):
         self.sigma_y = sigma_y
         self.noisy = True if sigma_y !=0 else False
         self.eta = eta  # Keep this for internal default
-        self.sigma_t = np.linspace(0.001, 1) ### temp
+        self.sigma_t = torch.sqrt((1 - torch.tensor(self.alphas_cumprod, dtype=torch.float32)) / torch.tensor(self.alphas_cumprod, dtype=torch.float32)).to(device)
         self.n = n
-        self.device = "cuda"
+        self.device = device
         self.sigma_y = sigma_y
 
     def _get_rt(self):
@@ -44,14 +44,15 @@ class PIGDM(DDPM):
         alpha_t = self.alphas[t_s].view(-1, 1, 1, 1)
         return alpha_t.sqrt() * x_0 + (1 - alpha_t).sqrt() * torch.randn_like(x_0)
 
-    def _get_grad_term(self, x_t, xhat, y, t=0):
+    def _get_grad_term(self, x_t, xhat, y, t=1):
         if not self.noisy:
             mat_term = (self.H.H_pinv(y) - self.H.H_pinv(self.H.H(xhat))).reshape(self.n, -1)
             mat_x = (mat_term.detach() * xhat.reshape(self.n, -1)).sum()
             grad_term = torch.autograd.grad(mat_x, x_t, retain_graph=True)[0].detach()
         else:
-            mat_term = (y - self.H(xhat)).T @ torch.inverse((self.H.mat @ self.H.mat.T + self.sigma_y / self.r[t] * torch.eye(self.n))) @ self.H.mat######
-            mat_x = (mat_term.detach() * xhat.reshape(self.n, -1)).sum()
+            r = self.sigma_t[t] / (1 + self.sigma_t[t])
+            mat_term = (y - self.H(xhat)) @ torch.inverse((self.H.mat @ self.H.mat.T + self.sigma_y / r * torch.eye(self.n).to(self.device))) @ self.H.mat######
+            mat_x = (mat_term.detach().reshape(self.n, -1) * xhat.reshape(self.n, -1)).sum()
             grad_term = torch.autograd.grad(mat_x, x_t, retain_graph=True)[0].detach()            
 
         return grad_term
@@ -61,7 +62,6 @@ class PIGDM(DDPM):
         x0_s = []
 
         self.alphas_cp_torch = torch.tensor(self.alphas_cumprod, device=self.device, dtype=torch.float32)
-        #self.r = self.alphas_cp_torch * self.sigma_y / (self.alphas_cp_torch + alpha * self.sigma_y)
 
         x = torch.randn(self.imgshape, device=self.device)
         x.requires_grad = True
@@ -87,9 +87,38 @@ class PIGDM(DDPM):
             coef_g = (alpha_s.sqrt() - c2 * alpha_t.sqrt() / (1 - alpha_t).sqrt()) * alpha_t.sqrt()
         return (alpha_t, alpha_s, c1, c2, coef_g)
 
+    def ddpm_sampling(self, y, x_true=None, show_steps=True, vis_y=None,
+                      steps_viz=200, eta=None, beta=1, awd=True, tqdm_bar=True):
+        if vis_y is None:
+            vis_y = y                
+
+        xt_s = []
+        x0_s = []
+
+        x = torch.randn(self.imgshape,device=self.device)
+        x.requires_grad = True
+
+        for t in self.reversed_time_steps:
+            z = torch.randn(self.imgshape, device=self.device)
+            eps = self.get_eps_from_model(x, t)
+
+            xhat = self.predict_xstart_from_eps(x, eps, t)
+
+            x_prime = np.sqrt(self.alphas[t])*(1-self.alphas_cumprod_prev[t])/(1-self.alphas_cumprod[t])*x
+            x_prime += np.sqrt(self.alphas_cumprod_prev[t])*self.betas[t]/(1-self.alphas_cumprod[t])*xhat + np.sqrt(self.betas[t])*z
+            grad_term = self._get_grad_term(x_prime, xhat, y, t)
+
+            x = x_prime - zeta*grad
+            xt_s.append(x.detach())
+            x0_s.append(xhat.detach().cpu())
+            if show_steps and t%100==0:
+                print('Iteration :', t)
+                _ = display_as_pilimg(torch.cat((x, xhat, y, x_true), dim=3))
+            
     def posterior_sampling(self, y, x_true=None, show_steps=True, vis_y=None,
-                           steps_viz=200, eta=None, beta=1, awd=True):
+                           steps_viz=200, eta=None, beta=1, awd=True, tqdm_bar=True):
         """
+        apply ddim sampling
         y: the input image
         x_true: the true image (optionnal)
         show_steps: verbose
@@ -109,7 +138,7 @@ class PIGDM(DDPM):
         (x, xt_s, x0_s, x, t_s, v_s) = self._init_sampling()
 
         x_t = x
-        if show_steps:
+        if tqdm_bar:
             time_iterator = tqdm(zip(t_s, v_s), total=len(t_s), desc="Sampling")
         else:
             time_iterator = zip(t_s, v_s)
@@ -119,7 +148,7 @@ class PIGDM(DDPM):
             x_t = x_t.clone().to(self.device).requires_grad_(True)
             eps = self.get_eps_from_model(x_t, t_)
             xhat = self.predict_xstart_from_eps(x_t, eps, t_)
-            grad_term = self._get_grad_term(x_t, xhat, y)
+            grad_term = self._get_grad_term(x_t, xhat, y, t_)
             xhat = xhat.detach()
             eps = eps.detach()
             z = torch.randn(self.imgshape, device=self.device)

@@ -3,6 +3,7 @@ from PIL import Image
 import torch
 from data.guided_diffusion.unet import create_model
 import matplotlib.pyplot as plt
+import json
 
 
 def pilimg_to_tensor(pil_img, device="cuda"):
@@ -78,3 +79,8 @@ def display_logs(tensor_dict, save_path=False):
         plt.savefig(save_path, bbox_inches='tight')
 
     plt.show()
+
+
+def save_results(result, path="../results/", fcn="inpainting", n_ddim=50, n_img=10):
+    with open(path + fcn + "_" + f"{n_ddim}" + "_" + f"{n_img}" + ".json", "w") as file:
+        json.dump(result, file, indent=4, ensure_ascii=False)

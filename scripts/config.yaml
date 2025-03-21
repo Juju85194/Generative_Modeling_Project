@@ -1,0 +1,19 @@
+run_dps: True
+
+dataset_path: "../data/ffhq256-1k-validation"
+
+figs_path: "../figs"
+  
+results_path: "../results"
+
+experiences: ["Inpainting", "Blurring"]
+
+eta: 0.2
+
+num_images: 5
+
+num_ddim_steps: 100
+
+num_samples: 2
+
+num_diffusion_timesteps: 1000

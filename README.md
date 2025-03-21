@@ -2,6 +2,8 @@
 
 Report containing the code and the report of the projet 5 [PSEUDOINVERSE-GUIDED DIFFUSION MODELS FOR INVERSE PROBLEMS](https://openreview.net/pdf?id=9_gsMA8MRKQ) of *Generative Models for image* @ MVA (B. GALERNE & A. LECLAIRE)
 
+![Texte alternatif](./figs/presentation_figure.png)
+
 ## Structure
 
 ```
@@ -52,3 +54,20 @@ Then
 from a terminal. Or simply run the whole notebook ``init.ipynb`` to download the packages, the pre-trained models and the data
 
 
+## Experiments
+
+To reproduce the experiments, you can either start the files in ``ntbk/`` and run them or execute the following commands
+
+```bash
+cd scripts
+```
+
+Config the parameters on the file ``config.yaml`` then run:
+
+```bash
+python evaluator.py
+```
+
+/!\ Important: In the notebooks and script, we refer to $\Pi GDM$ as "pigdm" and $DPS$ as "ddim", even though ddim is the name of the sampler, we consider that dps is the baseline so every variable named as ddim refer to dps !!
+
+The official implementation of $\Pi$GDM can be found [here](https://github.com/NVlabs/RED-diff/tree/66482f23e242bb31166c3662002d0a6f9f065030)
